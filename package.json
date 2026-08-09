@@ -1,0 +1,145 @@
+{
+  "name": "github-issue-finder",
+  "displayName": "GitHub Issue Finder",
+  "description": "Search GitHub Issues by number, title, and body in the active repository.",
+  "version": "0.21.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:githubIssueFinder.search",
+    "onView:githubIssueFinder.searchView"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "githubIssueFinder.search",
+        "title": "GitHub Issues: Search Current Repository",
+        "icon": "$(search)"
+      },
+      {
+        "command": "githubIssueFinder.refresh",
+        "title": "Refresh Issues",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "githubIssueFinder.filterState",
+        "title": "Filter Issues by State",
+        "icon": "$(list-filter)"
+      },
+      {
+        "command": "githubIssueFinder.filterAuthor",
+        "title": "Filter Issues by Author",
+        "icon": "$(account)"
+      },
+      {
+        "command": "githubIssueFinder.filterLabel",
+        "title": "Filter Issues by Label",
+        "icon": "$(tag)"
+      },
+      {
+        "command": "githubIssueFinder.configureFilters",
+        "title": "Configure Issue Filters",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "githubIssueFinder.clearFilters",
+        "title": "Clear Issue Filters",
+        "icon": "$(clear-all)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "githubIssueFinder",
+          "title": "GitHub Issues",
+          "icon": "$(issues)"
+        }
+      ]
+    },
+    "views": {
+      "githubIssueFinder": [
+        {
+          "id": "githubIssueFinder.searchView",
+          "name": "Issue Search"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "githubIssueFinder.search"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "githubIssueFinder.search",
+          "when": "view == githubIssueFinder.searchView",
+          "group": "navigation"
+        },
+        {
+          "command": "githubIssueFinder.refresh",
+          "when": "view == githubIssueFinder.searchView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "githubIssueFinder.configureFilters",
+          "when": "view == githubIssueFinder.searchView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "githubIssueFinder.filterState",
+          "when": "view == githubIssueFinder.searchView",
+          "group": "navigation@4"
+        },
+        {
+          "command": "githubIssueFinder.filterAuthor",
+          "when": "view == githubIssueFinder.searchView",
+          "group": "navigation@5"
+        },
+        {
+          "command": "githubIssueFinder.filterLabel",
+          "when": "view == githubIssueFinder.searchView",
+          "group": "navigation@6"
+        },
+        {
+          "command": "githubIssueFinder.clearFilters",
+          "when": "view == githubIssueFinder.searchView",
+          "group": "navigation@7"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "GitHub Issue Finder",
+      "properties": {
+        "githubIssueFinder.maxResults": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum number of issues returned by a keyword search."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "npm run check && esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.js --sourcemap",
+    "watch": "tsc -p ./ --watch",
+    "check": "tsc -p ./ --noEmit"
+  },
+  "dependencies": {
+    "marked": "^12.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0"
+  }
+}

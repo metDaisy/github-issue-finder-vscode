@@ -310,11 +310,12 @@ async function openIssueWithDetails(
   issueTree: IssueTreeProvider
 ): Promise<void> {
   const cachedDetails = getCachedIssueDetails(issueContext.repository, issue);
-  let controller: IssuePanelController;
-  controller = showIssuePanel(issue, cachedDetails.comments, issueContext.repository, (action, panelController) => {
+  const opened = showIssuePanel(issue, cachedDetails.comments, issueContext.repository, (action, panelController) => {
     void handlePanelAction(action, issueContext.session, issueContext.repository, issueTree, panelController);
   }, cachedDetails.relationships, cachedDetails.projects);
-  void reloadIssuePanel(issueContext.session, issueContext.repository, issue.number, controller, true).catch(showError);
+  if (opened.created) {
+    void reloadIssuePanel(issueContext.session, issueContext.repository, issue.number, opened.controller, true).catch(showError);
+  }
 }
 
 async function reloadIssuePanel(

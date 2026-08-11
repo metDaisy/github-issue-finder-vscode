@@ -18,6 +18,7 @@ A small VS Code/Antigravity extension for searching Issues in the active GitHub 
 - Adds comments from the IDE panel
 - Edits Issue title and Markdown body from the IDE panel
 - Renders cached Issue data immediately, then revalidates it with GitHub ETags in the background
+- Reuses an already-open Issue tab instead of opening duplicates
 
 ## Run locally
 

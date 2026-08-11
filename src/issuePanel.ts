@@ -27,6 +27,18 @@ export interface IssuePanelController {
   preview(body: string, target?: "issue" | "comment"): void;
 }
 
+export interface IssuePanelOpenResult {
+  controller: IssuePanelController;
+  created: boolean;
+}
+
+interface OpenIssuePanel {
+  panel: vscode.WebviewPanel;
+  controller: IssuePanelController;
+}
+
+const openIssuePanels = new Map<string, OpenIssuePanel>();
+
 export function showIssuePanel(
   issue: GitHubIssue,
   comments: GitHubComment[],
@@ -34,7 +46,14 @@ export function showIssuePanel(
   onAction: (action: IssuePanelAction, controller: IssuePanelController) => void,
   relationships: IssueRelationships = {},
   projects: GitHubProjectItem[] = []
-): IssuePanelController {
+): IssuePanelOpenResult {
+  const key = issuePanelKey(repository, issue.number);
+  const existing = openIssuePanels.get(key);
+  if (existing) {
+    existing.panel.reveal(vscode.ViewColumn.Active, false);
+    return { controller: existing.controller, created: false };
+  }
+
   const panel = vscode.window.createWebviewPanel(
     "githubIssueFinder.issue",
     `Issue #${issue.number}`,
@@ -60,8 +79,16 @@ export function showIssuePanel(
     }
   };
   panel.webview.onDidReceiveMessage((message: IssuePanelAction) => onAction(message, controller));
+  openIssuePanels.set(key, { panel, controller });
+  panel.onDidDispose(() => {
+    if (openIssuePanels.get(key)?.panel === panel) openIssuePanels.delete(key);
+  });
   panel.webview.html = renderIssue(panel.webview, currentIssue, currentComments, repository, currentRelationships, currentProjects);
-  return controller;
+  return { controller, created: true };
+}
+
+function issuePanelKey(repository: Repository, issueNumber: number): string {
+  return `${repository.owner.toLowerCase()}/${repository.name.toLowerCase()}#${issueNumber}`;
 }
 
 function renderIssue(

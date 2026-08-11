@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { addIssueDependency, addSubIssue, createIssueComment, getIssue, getIssueProjects, listIssues, listRepositoryLabels, searchIssues, updateIssue, updateProjectField, type GitHubAuth, type GitHubIssue, type GitHubProjectItem, type IssueUpdateOptions } from "./github";
+import { addIssueDependency, addSubIssue, createIssueComment, getIssue, getIssueProjects, initializeGitHubCache, invalidateRepositoryCache, listIssues, listRepositoryLabels, searchIssues, updateIssue, updateProjectField, type GitHubAuth, type GitHubIssue, type GitHubProjectItem, type IssueUpdateOptions } from "./github";
 import { loadIssueDetails } from "./issueDetails";
 import { showIssuePanel, type IssuePanelAction, type IssuePanelController } from "./issuePanel";
 import { IssueTreeProvider, type IssueTreeContext } from "./issueTree";
@@ -13,13 +13,14 @@ import { getCurrentRepository, type Repository } from "./repository";
 const GITHUB_AUTH_SCOPES = ["repo"];
 
 export function activate(context: vscode.ExtensionContext): void {
+  initializeGitHubCache(context.globalState);
   const issueTree = new IssueTreeProvider(() => getIssueContext());
   const searchView = vscode.window.createTreeView("githubIssueFinder.searchView", {
     treeDataProvider: issueTree
   });
   const commands = [
     vscode.commands.registerCommand("githubIssueFinder.search", () => searchCurrentRepository(issueTree)),
-    vscode.commands.registerCommand("githubIssueFinder.refresh", () => issueTree.refresh()),
+    vscode.commands.registerCommand("githubIssueFinder.refresh", () => refreshIssueTree(issueTree)),
     vscode.commands.registerCommand("githubIssueFinder.filterState", () => filterState(issueTree)),
     vscode.commands.registerCommand("githubIssueFinder.filterAuthor", () => filterAuthor(issueTree)),
     vscode.commands.registerCommand("githubIssueFinder.filterLabel", () => filterLabel(issueTree)),
@@ -32,6 +33,12 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {}
+
+async function refreshIssueTree(issueTree: IssueTreeProvider): Promise<void> {
+  const context = await getIssueContext();
+  if (context) invalidateRepositoryCache(context.repository);
+  await issueTree.refresh();
+}
 
 async function searchCurrentRepository(issueTree: IssueTreeProvider): Promise<void> {
   try {
@@ -94,12 +101,14 @@ async function handlePanelAction(
     if (action.type === "addComment") {
       if (!action.body.trim()) throw new Error("Comment cannot be empty.");
       await createIssueComment(session, repository, controller.issueNumber, action.body);
+      invalidateRepositoryCache(repository);
       await reloadIssuePanel(session, repository, controller.issueNumber, controller);
       return;
     }
     if (action.type === "updateIssue") {
       if (!action.title.trim()) throw new Error("Issue title cannot be empty.");
       await updateIssue(session, repository, controller.issueNumber, action.title.trim(), action.body);
+      invalidateRepositoryCache(repository);
       await reloadIssuePanel(session, repository, controller.issueNumber, controller);
       return;
     }
@@ -127,12 +136,14 @@ async function handlePanelAction(
     }
     if (action.type === "updateProjectDate") {
       await updateProjectDate(session, repository, controller.issueNumber, action.field, action.value);
+      invalidateRepositoryCache(repository);
       await reloadIssuePanel(session, repository, controller.issueNumber, controller);
       return;
     }
     if (action.type === "relationship") {
       const changed = await editRelationship(session, repository, controller.issueNumber, action.relationship);
       if (!changed) return;
+      invalidateRepositoryCache(repository);
       await reloadIssuePanel(session, repository, controller.issueNumber, controller);
       issueTree.invalidateParent(controller.issueNumber);
       void issueTree.refresh();
@@ -140,11 +151,13 @@ async function handlePanelAction(
     }
     if (action.type === "editField") {
       await editIssueField(action.field, session, repository, controller.issueNumber);
+      invalidateRepositoryCache(repository);
       await reloadIssuePanel(session, repository, controller.issueNumber, controller);
       void issueTree.refresh();
       return;
     }
     if (action.type === "refresh") {
+      invalidateRepositoryCache(repository);
       await reloadIssuePanel(session, repository, controller.issueNumber, controller);
       return;
     }

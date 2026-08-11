@@ -1,4 +1,7 @@
 import type { Repository } from "./repository";
+import { configureResponseCache, getResponseCache, isPersistentIssueUrl, type CacheStorage } from "./githubCache";
+
+const CACHE_TTL_MS = 15_000;
 
 export interface GitHubAuth {
   readonly accessToken: string;
@@ -86,6 +89,15 @@ export interface GitHubProjectItem {
   title: string;
   url?: string;
   fields: GitHubProjectField[];
+}
+
+export function initializeGitHubCache(storage: CacheStorage): void {
+  configureResponseCache(storage);
+}
+
+export function invalidateRepositoryCache(repository: Repository): void {
+  const prefix = `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/`;
+  getResponseCache().invalidate((key) => key.startsWith(prefix));
 }
 
 export async function searchIssues(
@@ -403,24 +415,50 @@ export async function addIssueDependency(
 }
 
 async function request<T>(url: string, session: GitHubAuth, init: RequestInit = {}): Promise<T> {
+  const method = (init.method ?? "GET").toUpperCase();
+  const cacheable = method === "GET";
+  const cache = getResponseCache();
+  const cached = cacheable ? cache.get<T>(url) : undefined;
+  const now = Date.now();
+  if (cached && now - cached.validatedAt < CACHE_TTL_MS) return cached.body;
+
+  const requestHeaders: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    Authorization: `Bearer ${session.accessToken}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "github-issue-finder",
+    "Content-Type": "application/json",
+    ...(init.headers as Record<string, string> | undefined)
+  };
+  if (cached?.etag) requestHeaders["If-None-Match"] = cached.etag;
+  if (cached?.lastModified) requestHeaders["If-Modified-Since"] = cached.lastModified;
+
   const response = await fetch(url, {
     ...init,
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${session.accessToken}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "github-issue-finder",
-      "Content-Type": "application/json",
-      ...(init.headers ?? {})
-    }
+    headers: requestHeaders
   });
+
+  if (response.status === 304 && cached) {
+    cache.set(url, { ...cached, validatedAt: Date.now() });
+    return cached.body;
+  }
 
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`GitHub API request failed (${response.status}): ${detail.slice(0, 300)}`);
   }
 
-  return (await response.json()) as T;
+  const body = (await response.json()) as T;
+  if (cacheable) {
+    cache.set(url, {
+      body,
+      etag: response.headers.get("etag") ?? undefined,
+      lastModified: response.headers.get("last-modified") ?? undefined,
+      validatedAt: Date.now(),
+      persistent: isPersistentIssueUrl(url)
+    });
+  }
+  return body;
 }
 
 function projectFieldValue(value: RawProjectValue | undefined): string | undefined {

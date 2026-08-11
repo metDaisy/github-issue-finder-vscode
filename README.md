@@ -12,6 +12,7 @@ A small VS Code/Antigravity extension for searching Issues in the active GitHub 
 - Opens `#123` references in another IDE Issue panel
 - Opens `source: `path` 3-3, 3-7` references at matching Markdown headings
 - Shows the current repository's Issues in a tree view
+- Shows only root Issues at the top level and nests filtered-out ancestors when needed
 - Filters by state, author, and label from the view header or Issue metadata
 - Groups Issues using `Parent: #123` and GitHub sub-issue relationships
 - Adds comments from the IDE panel

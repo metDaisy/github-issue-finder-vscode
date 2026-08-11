@@ -2,7 +2,7 @@
   "name": "github-issue-finder",
   "displayName": "GitHub Issue Finder",
   "description": "Search GitHub Issues by number, title, and body in the active repository.",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "publisher": "local",
   "license": "MIT",
   "engines": {

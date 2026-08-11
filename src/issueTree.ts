@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getParentIssueNumber, listIssues, type GitHubAuth, type GitHubIssue, type IssueFilters } from "./github";
+import { getIssue, getParentIssueNumber, listIssues, type GitHubAuth, type GitHubIssue, type IssueFilters } from "./github";
 import type { Repository } from "./repository";
 
 export interface IssueTreeContext {
@@ -49,12 +49,13 @@ export class IssueTreeProvider implements vscode.TreeDataProvider<IssueTreeItem 
       const repositoryKey = `${context.repository.owner}/${context.repository.name}`;
       if (this.parentCacheRepository !== repositoryKey) {
         this.parentCacheRepository = repositoryKey;
-        this.parentCache.clear();
       }
+      this.parentCache.clear();
       const maxResults = vscode.workspace.getConfiguration("githubIssueFinder").get<number>("maxResults", 100);
       this.allIssues = await listIssues(context.session, context.repository, this.filters, maxResults);
       const parents = await this.resolveParents(this.allIssues, context);
-      this.roots = buildTree(this.allIssues, parents);
+      const hierarchyIssues = await this.includeMissingAncestors(this.allIssues, parents, context);
+      this.roots = buildRootTree(hierarchyIssues, parents);
       this.message = this.roots.length === 0 ? "No Issues match the current filters." : "";
     } catch (error) {
       this.message = error instanceof Error ? error.message : String(error);
@@ -105,30 +106,47 @@ export class IssueTreeProvider implements vscode.TreeDataProvider<IssueTreeItem 
     context: IssueTreeContext
   ): Promise<Map<number, number>> {
     const parents = new Map<number, number>();
-    const unresolved = issues.filter((issue) => {
-      const parent = parseParentNumber(issue.body);
-      if (parent !== undefined) {
-        parents.set(issue.number, parent);
-        return false;
-      }
-      return true;
-    });
-
-    const uncached = unresolved.filter((issue) => {
-      const cached = this.parentCache.get(issue.number);
-      if (cached === undefined) return true;
-      if (cached !== null) parents.set(issue.number, cached);
-      return false;
-    });
-    const nativeParents = await Promise.all(uncached.map(async (issue) => ({
-      issue: issue.number,
-      parent: await getParentIssueNumber(context.session, context.repository, issue.number)
-    })));
-    for (const item of nativeParents) {
-      this.parentCache.set(item.issue, item.parent ?? null);
-      if (item.parent !== undefined) parents.set(item.issue, item.parent);
-    }
+    await Promise.all(issues.map(async (issue) => {
+      const parent = await this.resolveParent(issue, context);
+      if (parent !== undefined) parents.set(issue.number, parent);
+    }));
     return parents;
+  }
+
+  private async resolveParent(issue: GitHubIssue, context: IssueTreeContext): Promise<number | undefined> {
+    const parsed = parseParentNumber(issue.body);
+    if (parsed !== undefined) return parsed;
+
+    const cached = this.parentCache.get(issue.number);
+    if (cached !== undefined) return cached ?? undefined;
+
+    const parent = await getParentIssueNumber(context.session, context.repository, issue.number);
+    this.parentCache.set(issue.number, parent ?? null);
+    return parent;
+  }
+
+  private async includeMissingAncestors(
+    issues: GitHubIssue[],
+    parents: Map<number, number>,
+    context: IssueTreeContext
+  ): Promise<GitHubIssue[]> {
+    const hierarchyIssues = new Map(issues.map((issue) => [issue.number, issue]));
+    const pending = [...new Set(parents.values())].filter((number) => !hierarchyIssues.has(number));
+
+    while (pending.length > 0) {
+      const parentNumber = pending.shift();
+      if (parentNumber === undefined || hierarchyIssues.has(parentNumber)) continue;
+      const parent = await getIssue(context.session, context.repository, parentNumber);
+      if (!parent) continue;
+
+      hierarchyIssues.set(parent.number, parent);
+      const grandParent = await this.resolveParent(parent, context);
+      if (grandParent !== undefined) {
+        parents.set(parent.number, grandParent);
+        if (!hierarchyIssues.has(grandParent)) pending.push(grandParent);
+      }
+    }
+    return [...hierarchyIssues.values()];
   }
 }
 
@@ -137,7 +155,7 @@ export function parseParentNumber(body: string | null): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
-function buildTree(issues: GitHubIssue[], parents: Map<number, number>): IssueNode[] {
+function buildRootTree(issues: GitHubIssue[], parents: Map<number, number>): IssueNode[] {
   const nodes = new Map(issues.map((issue) => [issue.number, { issue, children: [] as IssueNode[] }]));
   const roots: IssueNode[] = [];
   for (const node of nodes.values()) {

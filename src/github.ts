@@ -91,6 +91,10 @@ export interface GitHubProjectItem {
   fields: GitHubProjectField[];
 }
 
+export interface IssueReadOptions {
+  revalidate?: boolean;
+}
+
 export function initializeGitHubCache(storage: CacheStorage): void {
   configureResponseCache(storage);
 }
@@ -159,13 +163,33 @@ async function searchByQuery(
 export async function getIssue(
   session: GitHubAuth,
   repository: Repository,
-  issueNumber: number
+  issueNumber: number,
+  options: IssueReadOptions = {}
 ): Promise<GitHubIssue | undefined> {
   const issue = await request<GitHubIssue>(
-    `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/issues/${issueNumber}`,
-    session
+    issueUrl(repository, issueNumber),
+    session,
+    {},
+    options
   );
   return issue.pull_request ? undefined : issue;
+}
+
+export function getCachedIssue(repository: Repository, issueNumber: number): GitHubIssue | undefined {
+  const issue = getCachedResponse<GitHubIssue>(issueUrl(repository, issueNumber));
+  return issue?.pull_request ? undefined : issue;
+}
+
+export function getCachedIssueComments(repository: Repository, issueNumber: number): GitHubComment[] | undefined {
+  return getCachedResponse<GitHubComment[]>(`${issueUrl(repository, issueNumber)}/comments?per_page=100`);
+}
+
+export function getCachedParentIssueNumber(repository: Repository, issueNumber: number): number | undefined {
+  return getCachedResponse<{ number: number }>(`${issueUrl(repository, issueNumber)}/parent`)?.number;
+}
+
+export function getCachedIssueSubIssues(repository: Repository, issueNumber: number): GitHubIssue[] | undefined {
+  return getCachedResponse<GitHubIssue[]>(`${issueUrl(repository, issueNumber)}/sub_issues?per_page=100`);
 }
 
 export async function getIssueProjects(
@@ -414,13 +438,18 @@ export async function addIssueDependency(
   );
 }
 
-async function request<T>(url: string, session: GitHubAuth, init: RequestInit = {}): Promise<T> {
+async function request<T>(
+  url: string,
+  session: GitHubAuth,
+  init: RequestInit = {},
+  options: { revalidate?: boolean } = {}
+): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const cacheable = method === "GET";
   const cache = getResponseCache();
   const cached = cacheable ? cache.get<T>(url) : undefined;
   const now = Date.now();
-  if (cached && now - cached.validatedAt < CACHE_TTL_MS) return cached.body;
+  if (cached && !options.revalidate && now - cached.validatedAt < CACHE_TTL_MS) return cached.body;
 
   const requestHeaders: Record<string, string> = {
     Accept: "application/vnd.github+json",
@@ -464,6 +493,14 @@ async function request<T>(url: string, session: GitHubAuth, init: RequestInit = 
 function projectFieldValue(value: RawProjectValue | undefined): string | undefined {
   if (!value) return undefined;
   return value.date ?? value.name ?? value.text ?? (value.number === undefined ? undefined : String(value.number));
+}
+
+function issueUrl(repository: Repository, issueNumber: number): string {
+  return `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/issues/${issueNumber}`;
+}
+
+function getCachedResponse<T>(url: string): T | undefined {
+  return getResponseCache().get<T>(url)?.body;
 }
 
 async function graphqlRequest<T>(session: GitHubAuth, query: string, variables: Record<string, unknown>): Promise<T> {

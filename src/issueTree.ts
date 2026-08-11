@@ -34,6 +34,10 @@ export class IssueTreeProvider implements vscode.TreeDataProvider<IssueTreeItem 
     return { ...this.filters };
   }
 
+  findIssue(issueNumber: number): GitHubIssue | undefined {
+    return this.allIssues.find((issue) => issue.number === issueNumber);
+  }
+
   async refresh(): Promise<void> {
     if (this.loading) return;
     this.loading = true;
@@ -55,6 +59,7 @@ export class IssueTreeProvider implements vscode.TreeDataProvider<IssueTreeItem 
       this.allIssues = await listIssues(context.session, context.repository, this.filters, maxResults);
       const parents = await this.resolveParents(this.allIssues, context);
       const hierarchyIssues = await this.includeMissingAncestors(this.allIssues, parents, context);
+      this.allIssues = hierarchyIssues;
       this.roots = buildRootTree(hierarchyIssues, parents);
       this.message = this.roots.length === 0 ? "No Issues match the current filters." : "";
     } catch (error) {

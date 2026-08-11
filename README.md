@@ -17,7 +17,7 @@ A small VS Code/Antigravity extension for searching Issues in the active GitHub 
 - Groups Issues using `Parent: #123` and GitHub sub-issue relationships
 - Adds comments from the IDE panel
 - Edits Issue title and Markdown body from the IDE panel
-- Caches Issue-related responses in extension storage and revalidates them with GitHub ETags
+- Renders cached Issue data immediately, then revalidates it with GitHub ETags in the background
 
 ## Run locally
 

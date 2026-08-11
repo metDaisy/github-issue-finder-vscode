@@ -1,4 +1,4 @@
-import { getIssue, getIssueComments, getIssueProjects, getIssueSubIssues, getParentIssueNumber, type GitHubAuth, type GitHubIssue, type GitHubProjectItem } from "./github";
+import { getCachedIssue, getCachedIssueComments, getCachedIssueSubIssues, getCachedParentIssueNumber, getIssue, getIssueComments, getIssueProjects, getIssueSubIssues, getParentIssueNumber, type GitHubAuth, type GitHubIssue, type GitHubProjectItem } from "./github";
 import type { IssueRelationships } from "./issueRelationships";
 import { parseParentNumber } from "./issueTree";
 import type { Repository } from "./repository";
@@ -7,6 +7,24 @@ export interface IssueDetails {
   comments: Awaited<ReturnType<typeof getIssueComments>>;
   relationships: IssueRelationships;
   projects: GitHubProjectItem[];
+}
+
+/** Returns cached panel data immediately; callers should revalidate in the background. */
+export function getCachedIssueDetails(repository: Repository, issue: GitHubIssue): IssueDetails {
+  const parentNumber = getCachedParentIssueNumber(repository, issue.number) ?? parseParentNumber(issue.body);
+  const subIssues = parentNumber === undefined ? undefined : getCachedIssueSubIssues(repository, parentNumber);
+  return {
+    comments: getCachedIssueComments(repository, issue.number) ?? [],
+    relationships: parentNumber === undefined
+      ? {}
+      : {
+          parentNumber,
+          parentIssue: getCachedIssue(repository, parentNumber),
+          parentSubIssueTotal: subIssues?.length,
+          parentSubIssueClosed: subIssues?.filter((subIssue) => subIssue.state === "closed").length
+        },
+    projects: []
+  };
 }
 
 /** Loads all secondary data needed to render one Issue panel. */

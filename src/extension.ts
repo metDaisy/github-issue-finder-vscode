@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { addIssueDependency, addSubIssue, createIssueComment, getIssue, getIssueProjects, initializeGitHubCache, invalidateRepositoryCache, listIssues, listRepositoryLabels, searchIssues, updateIssue, updateProjectField, type GitHubAuth, type GitHubIssue, type GitHubProjectItem, type IssueUpdateOptions } from "./github";
-import { loadIssueDetails } from "./issueDetails";
+import { getCachedIssueDetails, loadIssueDetails } from "./issueDetails";
 import { showIssuePanel, type IssuePanelAction, type IssuePanelController } from "./issuePanel";
 import { IssueTreeProvider, type IssueTreeContext } from "./issueTree";
 import { findProjectField } from "./projectFields";
@@ -309,23 +309,22 @@ async function openIssueWithDetails(
   issueContext: IssueTreeContext,
   issueTree: IssueTreeProvider
 ): Promise<void> {
-  const details = await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: `Loading Issue #${issue.number}` },
-    () => loadIssueDetails(issueContext.session, issueContext.repository, issue)
-  );
+  const cachedDetails = getCachedIssueDetails(issueContext.repository, issue);
   let controller: IssuePanelController;
-  controller = showIssuePanel(issue, details.comments, issueContext.repository, (action, panelController) => {
+  controller = showIssuePanel(issue, cachedDetails.comments, issueContext.repository, (action, panelController) => {
     void handlePanelAction(action, issueContext.session, issueContext.repository, issueTree, panelController);
-  }, details.relationships, details.projects);
+  }, cachedDetails.relationships, cachedDetails.projects);
+  void reloadIssuePanel(issueContext.session, issueContext.repository, issue.number, controller, true).catch(showError);
 }
 
 async function reloadIssuePanel(
   session: GitHubAuth,
   repository: Repository,
   issueNumber: number,
-  controller: IssuePanelController
+  controller: IssuePanelController,
+  revalidate = false
 ): Promise<void> {
-  const issue = await getIssue(session, repository, issueNumber);
+  const issue = await getIssue(session, repository, issueNumber, { revalidate });
   if (!issue) throw new Error(`#${issueNumber} is not an Issue in this repository.`);
   const details = await loadIssueDetails(session, repository, issue);
   controller.update(issue, details.comments, details.relationships, details.projects);
@@ -335,7 +334,8 @@ async function openIssueFromTree(issueNumber: number, issueTree: IssueTreeProvid
   try {
     const issueContext = await getIssueContext();
     if (!issueContext) throw new Error("Sign in to GitHub and open a GitHub repository first.");
-    const issue = await getIssue(issueContext.session, issueContext.repository, issueNumber);
+    const issue = issueTree.findIssue(issueNumber)
+      ?? await getIssue(issueContext.session, issueContext.repository, issueNumber);
     if (!issue) throw new Error(`#${issueNumber} is not an Issue in this repository.`);
     await openIssueWithDetails(issue, issueContext, issueTree);
   } catch (error) {
